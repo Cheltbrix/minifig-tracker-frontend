@@ -84,14 +84,15 @@ function drawHome() {
   const d = dashData;
   const key = MEASURES[localStorage.getItem('measure')] ? localStorage.getItem('measure') : 'best';
   const m = MEASURES[key];
-  const total = d.measures ? d.measures[key] : { total: d.totalValue, count: d.pricedCount };
+  const raw = d.measures ? d.measures[key] : { total: d.totalValue, count: d.pricedCount };
+  const total = { total: raw?.total ?? 0, count: raw?.count ?? 0 };
 
   const chips = Object.entries(MEASURES).map(([k, v]) =>
     `<button class="mchip ${k === key ? 'on' : ''}" data-measure="${k}">${v.label}</button>`).join('');
 
   const prefixCards = PREFIXES.map((p) => {
     const s = d.byPrefix[p] || {};
-    const val = s.values ? s.values[key].total : (s.totalValue || 0);
+    const val = s.values?.[key]?.total ?? (key === 'best' ? (s.totalValue || 0) : 0);
     return `<a class="card pcard" href="#/browse?prefix=${p}&owned=owned">
       <div class="name">${p}</div><div class="sub">${esc(PREFIX_NAMES[p])}</div>
       <div class="val">${gbp(val)}</div>
