@@ -64,14 +64,37 @@ async function setOwned(catalogId, owned) {
 }
 
 // ---- Dashboard ----
+const MEASURES = {
+  best:     { label: 'Best estimate',            note: 'BrickLink average sold price (new, last 6 months). Where a figure has not sold in that time, its average asking price (new) is used and marked "asking".' },
+  soldNew:  { label: 'Sold · new',               note: 'BrickLink average sold price, new condition, last 6 months. Figures with no recent sales are not counted.' },
+  soldUsed: { label: 'Sold · used',              note: 'BrickLink average sold price, used condition, last 6 months. Figures with no recent used sales are not counted.' },
+  askNew:   { label: 'For sale · new',           note: 'Average of current BrickLink asking prices, new condition. Asking prices usually run higher than what figures actually sell for.' },
+  askUsed:  { label: 'For sale · used',          note: 'Average of current BrickLink asking prices, used condition. Asking prices usually run higher than what figures actually sell for.' },
+  askMixed: { label: 'For sale · new, else used', note: 'Average asking price for new. Where nothing new is listed, the used asking average is substituted.' }
+};
+let dashData = null;
+
 async function renderHome() {
   loading();
-  const d = await api('/api/dashboard');
+  dashData = await api('/api/dashboard');
+  drawHome();
+}
+
+function drawHome() {
+  const d = dashData;
+  const key = MEASURES[localStorage.getItem('measure')] ? localStorage.getItem('measure') : 'best';
+  const m = MEASURES[key];
+  const total = d.measures ? d.measures[key] : { total: d.totalValue, count: d.pricedCount };
+
+  const chips = Object.entries(MEASURES).map(([k, v]) =>
+    `<button class="mchip ${k === key ? 'on' : ''}" data-measure="${k}">${v.label}</button>`).join('');
+
   const prefixCards = PREFIXES.map((p) => {
     const s = d.byPrefix[p] || {};
+    const val = s.values ? s.values[key].total : (s.totalValue || 0);
     return `<a class="card pcard" href="#/browse?prefix=${p}&owned=owned">
       <div class="name">${p}</div><div class="sub">${esc(PREFIX_NAMES[p])}</div>
-      <div class="val">${gbp(s.totalValue || 0)}</div>
+      <div class="val">${gbp(val)}</div>
       <div class="sub">${s.ownedCount || 0} owned${s.trackedCount > s.ownedCount ? ` · ${s.trackedCount} tracked` : ''}</div></a>`;
   }).join('');
 
@@ -85,11 +108,12 @@ async function renderHome() {
 
   const unpriced = d.ownedCount - d.pricedCount;
   app.innerHTML = `
+    <div class="mchips">${chips}</div>
     <div class="card hero">
-      <div class="muted small">Collection value</div>
-      <div class="big">${gbp(d.totalValue)}</div>
+      <div class="muted small">Collection value · ${m.label}</div>
+      <div class="big">${gbp(total.total)}</div>
       <div class="row">
-        <span><b>${d.ownedCount}</b> owned figures</span>
+        <span>Based on <b>${total.count}</b> of <b>${d.ownedCount}</b> owned figures</span>
         <span><b>${d.trackedCount}</b> tracked</span>
         <span>Prices updated <b>${dateStr(d.lastPriceUpdate)}</b></span>
       </div>
@@ -100,7 +124,12 @@ async function renderHome() {
     <div class="list">${miniList(d.topGainers, 'gain') || '<p class="muted small">Gainers appear once a week of price history has been collected.</p>'}</div>
     <h2>Top 5 most traded (6 months)</h2>
     <div class="list">${miniList(d.topTraded, 'traded') || '<p class="muted small">No sales data yet.</p>'}</div>
-    <p class="muted small" style="margin-top:20px">Values use BrickLink average sold price (new, GBP). Where a figure hasn't sold in 6 months, the average asking price is used and marked <span class="chip warn">asking</span>. Figures marked not owned are excluded from totals.</p>`;
+    <p class="muted small" style="margin-top:20px"><b>${m.label}:</b> ${m.note} Figures marked not owned are excluded from totals.</p>`;
+
+  document.querySelectorAll('[data-measure]').forEach((b) => b.onclick = () => {
+    localStorage.setItem('measure', b.dataset.measure);
+    drawHome();
+  });
 }
 
 // ---- Browse ----

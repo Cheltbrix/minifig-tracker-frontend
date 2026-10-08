@@ -73,3 +73,8 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .sets { display: flex; flex-direction: column; gap: 6px; } .sets div { background: var(--card2); border-radius: 8px; padding: 8px 10px; font-size: 14px; }
 .back { display: inline-block; margin-bottom: 8px; }
 .err { color: var(--bad); }
+
+.mchips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px; margin: 0 -16px 4px; padding-left: 16px; padding-right: 16px; scrollbar-width: none; }
+.mchips::-webkit-scrollbar { display: none; }
+.mchip { flex: 0 0 auto; padding: 7px 13px; border-radius: 999px; font-size: 13px; white-space: nowrap; background: var(--card); }
+.mchip.on { background: var(--accent); border-color: var(--accent); color: #06101f; }
