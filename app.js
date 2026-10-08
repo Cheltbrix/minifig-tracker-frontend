@@ -106,23 +106,26 @@ async function renderHome() {
 // ---- Browse ----
 const DEFAULTS = { q: '', prefix: '', universe: '', year: '', owned: 'all', sort: 'number', page: '1' };
 let yearsCache = null;
+let browseReq = 0;
 
-async function renderBrowse(query) {
-  const f = { ...DEFAULTS, ...Object.fromEntries(new URLSearchParams(query)) };
-  loading();
-  yearsCache = yearsCache || await api('/api/years').catch(() => []);
-  const qs = new URLSearchParams({
-    page: f.page, limit: 24, sortBy: f.sort, owned: f.owned,
-    ...(f.q && { search: f.q }), ...(f.prefix && { prefix: f.prefix }),
-    ...(f.universe && { universe: f.universe }), ...(f.year && { year: f.year })
-  });
-  const r = await api('/api/minifigures?' + qs);
-  const opt = (v, label, cur) => `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(label)}</option>`;
+const opt = (v, label, cur) => `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(label)}</option>`;
+const val = (id) => document.getElementById(id).value;
 
+function readFilters(page = '1') {
+  return { q: val('f-q').trim(), prefix: val('f-prefix'), universe: val('f-universe'),
+           year: val('f-year'), owned: val('f-owned'), sort: val('f-sort'), page };
+}
+function goFilters(n) {
+  const p = new URLSearchParams();
+  for (const k of Object.keys(DEFAULTS)) if (n[k] !== DEFAULTS[k] && n[k] !== '') p.set(k, n[k]);
+  location.hash = '#/browse' + (p.toString() ? '?' + p : '');
+}
+
+function browseShell(f) {
   app.innerHTML = `
     <h1>Browse</h1>
     <form class="filters" id="filters" onsubmit="return false">
-      <input class="full" id="f-q" type="search" placeholder="Search name or number (e.g. sh0042, Batman)" value="${esc(f.q)}">
+      <input class="full" id="f-q" type="search" placeholder="Search name or number (e.g. sh0042, Batman)" value="${esc(f.q)}" autocomplete="off">
       <select id="f-prefix"><option value="">All ranges</option>${PREFIXES.map((p) => opt(p, `${p} – ${PREFIX_NAMES[p]}`, f.prefix)).join('')}</select>
       <select id="f-universe">${opt('', 'All universes', f.universe)}${opt('Marvel', 'Marvel', f.universe)}${opt('DC', 'DC', f.universe)}${opt('Other', 'Other', f.universe)}</select>
       <select id="f-year"><option value="">Any year</option>${yearsCache.map((y) => opt(y, y, f.year)).join('')}</select>
@@ -132,6 +135,42 @@ async function renderBrowse(query) {
         ${opt('gain', '% gain', f.sort)}${opt('traded', 'Most sold (6m)', f.sort)}${opt('year-desc', 'Year: newest', f.sort)}${opt('year-asc', 'Year: oldest', f.sort)}${opt('name', 'Name A–Z', f.sort)}
       </select>
     </form>
+    <div id="results"></div>`;
+  for (const id of ['prefix', 'universe', 'year', 'owned', 'sort']) {
+    document.getElementById('f-' + id).onchange = () => goFilters(readFilters());
+  }
+  let t;
+  document.getElementById('f-q').oninput = () => { clearTimeout(t); t = setTimeout(() => goFilters(readFilters()), 700); };
+}
+
+async function renderBrowse(query) {
+  const f = { ...DEFAULTS, ...Object.fromEntries(new URLSearchParams(query)) };
+  const myReq = ++browseReq;
+
+  // Only build the filter bar once, so typing in the search box is never interrupted
+  if (!document.getElementById('filters')) {
+    loading();
+    yearsCache = yearsCache || await api('/api/years').catch(() => []);
+    if (myReq !== browseReq) return;
+    browseShell(f);
+  } else {
+    for (const id of ['prefix', 'universe', 'year', 'owned', 'sort']) document.getElementById('f-' + id).value = f[id];
+    const q = document.getElementById('f-q');
+    if (document.activeElement !== q) q.value = f.q;
+  }
+
+  const results = document.getElementById('results');
+  results.style.opacity = '.5';
+  const qs = new URLSearchParams({
+    page: f.page, limit: 24, sortBy: f.sort, owned: f.owned,
+    ...(f.q && { search: f.q }), ...(f.prefix && { prefix: f.prefix }),
+    ...(f.universe && { universe: f.universe }), ...(f.year && { year: f.year })
+  });
+  const r = await api('/api/minifigures?' + qs);
+  if (myReq !== browseReq) return; // a newer search has started; ignore this answer
+  results.style.opacity = '1';
+
+  results.innerHTML = `
     <p class="muted small">${r.pagination.total} figure${r.pagination.total === 1 ? '' : 's'}</p>
     <div class="list">${r.data.map(itemHtml).join('') || '<p class="muted center pad">Nothing matches those filters.</p>'}</div>
     <div class="pager">
@@ -139,19 +178,8 @@ async function renderBrowse(query) {
       <span class="muted small">Page ${r.pagination.page} of ${Math.max(r.pagination.pages, 1)}</span>
       <button id="next" ${r.pagination.page >= r.pagination.pages ? 'disabled' : ''}>Next →</button>
     </div>`;
-
-  const go = (patch) => {
-    const n = { ...f, ...patch };
-    const p = new URLSearchParams();
-    for (const k of Object.keys(DEFAULTS)) if (n[k] !== DEFAULTS[k] && n[k] !== '') p.set(k, n[k]);
-    location.hash = '#/browse' + (p.toString() ? '?' + p : '');
-  };
-  for (const id of ['prefix', 'universe', 'year', 'owned', 'sort']) {
-    document.getElementById('f-' + id).onchange = (e) => go({ [id]: e.target.value, page: '1' });
-  }
-  let t; document.getElementById('f-q').oninput = (e) => { clearTimeout(t); t = setTimeout(() => go({ q: e.target.value, page: '1' }), 600); };
-  document.getElementById('prev').onclick = () => go({ page: String(r.pagination.page - 1) });
-  document.getElementById('next').onclick = () => go({ page: String(r.pagination.page + 1) });
+  document.getElementById('prev').onclick = () => { goFilters(readFilters(String(r.pagination.page - 1))); window.scrollTo(0, 0); };
+  document.getElementById('next').onclick = () => { goFilters(readFilters(String(r.pagination.page + 1))); window.scrollTo(0, 0); };
   wireToggles();
 }
 
@@ -263,7 +291,7 @@ async function route() {
     if (path.startsWith('/fig/')) await renderFig(path.slice(5));
     else if (path.startsWith('/browse')) await renderBrowse(query);
     else await renderHome();
-    window.scrollTo(0, 0);
+    if (!path.startsWith('/browse')) window.scrollTo(0, 0);
   } catch (e) { showError(e); }
 }
 window.addEventListener('hashchange', route);
