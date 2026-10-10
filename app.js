@@ -1,4 +1,5 @@
 // ---- Settings ----
+function opt(v, label, cur) { return `<option value="${String(v).replace(/"/g, '&quot;')}" ${String(cur) === String(v) ? 'selected' : ''}>${String(label).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</option>`; }
 const API = window.API_BASE || 'https://minifig-tracker-backend.onrender.com';
 const GROUPS = {
   SH: 'Super Heroes', BAT: 'Batman', SPD: 'Spider-Man (original)', DIM: 'Dimensions & friends',
@@ -16,7 +17,8 @@ const num = (v) => (v == null ? null : parseFloat(v));
 const imgUrl = (f) => f.image_url || `https://img.bricklink.com/ItemImage/MN/0/${f.catalog_id}.png`;
 const dateStr = (d) => d ? new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'never';
 const gainHtml = (g) => g == null ? '' : `<span class="${g >= 0 ? 'up' : 'down'}">${g >= 0 ? '▲' : '▼'} ${Math.abs(g).toFixed(1)}%</span>`;
-const basisChip = (b) => b === 'EU' ? '<span class="chip eu" title="No UK sale in 6 months, so this is the European price">EU</span>'
+const basisChip = (b) => b === 'EU used' ? '<span class="chip eu" title="No UK sale, so this is the European used price">EU used</span>'
+  : b === 'used' ? '<span class="chip" title="No UK new sale, so this is the UK used price">used</span>' : b === 'EU' ? '<span class="chip eu" title="No UK sale in 6 months, so this is the European price">EU</span>'
   : b === 'ask' ? '<span class="chip warn" title="No recent sales anywhere, so this is the average asking price">asking</span>' : '';
 
 async function api(path, opts = {}) {
@@ -72,25 +74,41 @@ async function renderHome() {
     </div>`;
 }
 
-// ---- Values page (hidden behind a drop-down) ----
+// ---- Values page ----
 const MEASURES = {
   best:     { label: 'Best estimate',             note: 'UK sold prices, new and used pooled together over 6 months. If a figure has no UK sale, the European sold price is used (tagged EU); if it has no sales anywhere, the UK asking price (tagged asking).' },
   soldNew:  { label: 'Sold · new',                note: 'Average UK sold price, new, last 6 months. No UK sale: the European price is used and tagged EU.' },
   soldUsed: { label: 'Sold · used',               note: 'Average UK sold price, used, last 6 months. No UK sale: the European price is used and tagged EU.' },
   askNew:   { label: 'For sale · new',            note: 'Average UK asking price, new. Asking prices usually run higher than what figures actually sell for.' },
   askUsed:  { label: 'For sale · used',           note: 'Average UK asking price, used. Asking prices usually run higher than what figures actually sell for.' },
+  soldChain: { label: 'Sold · UK new → used → Europe', note: 'Average sold price over 6 months: UK new; if none, UK used; if none, European new; if none, European used. Tags show which step was used (used, EU, EU used).' },
   askMixed: { label: 'For sale · new → used → Europe', note: 'UK asking price for new; if none, UK used; if none, a European asking price.' }
 };
-let dashData = null;
+const MEASURE_FIELD = { best: 'value_gbp', soldNew: 'v_sold_new', soldUsed: 'v_sold_used', askNew: 'v_ask_new', askUsed: 'v_ask_used', soldChain: 'v_sold_chain', askMixed: 'v_ask_mixed' };
+const curMeasure = () => (MEASURES[localStorage.getItem('measure')] ? localStorage.getItem('measure') : 'best');
+// the price to show for an item under a measure, plus its EU / asking tag
+function priceFor(f, key) {
+  const v = num(f[MEASURE_FIELD[key]]);
+  let basis = null;
+  if (key === 'best') basis = f.value_basis;
+  else if (key === 'soldNew') basis = f.sold_new_basis;
+  else if (key === 'soldUsed') basis = f.sold_used_basis;
+  else if (key === 'soldChain') basis = f.sold_chain_basis === 'UK' ? null : f.sold_chain_basis;
+  else if (key === 'askMixed' && v != null && f.v_ask_new == null && f.v_ask_used == null) basis = 'EU';
+  return { v, basis };
+}
+let dashData = null, showTotal = false;
 
 async function renderValues() {
   loading();
+  showTotal = false;                     // the headline figure always starts hidden
   dashData = await api('/api/dashboard');
-  drawValues(false);
+  drawValues();
 }
-function drawValues(open) {
+function drawValues() {
   const d = dashData;
-  const key = MEASURES[localStorage.getItem('measure')] ? localStorage.getItem('measure') : 'best';
+  const sc = document.querySelector('.mchips')?.scrollLeft || 0, y = window.scrollY;   // keep the scroll position when re-drawing
+  const key = curMeasure();
   const m = MEASURES[key], raw = d.measures?.[key] || { total: 0, count: 0 };
   const chips = Object.entries(MEASURES).map(([k, v]) => `<button class="mchip ${k === key ? 'on' : ''}" data-measure="${k}">${v.label}</button>`).join('');
   const cards = PREFIXES.map((p) => {
@@ -98,38 +116,61 @@ function drawValues(open) {
     return `<a class="card pcard" href="#/browse?prefix=${p}&owned=owned"><div class="name">${p}</div><div class="sub">${esc(GROUPS[p])}</div>
       <div class="val">${gbp(v)}</div><div class="sub">${s.ownedQty ?? s.ownedCount ?? 0} owned</div></a>`;
   }).join('');
-  const mini = (rows, kind) => rows.length ? rows.map((f) => `
+  const mini = (rows) => rows.map((f) => `
     <a class="card item" href="#/fig/${f.catalog_id}"><div class="thumb"><img loading="lazy" src="${imgUrl(f)}" alt=""></div>
       <div class="body"><div class="title">${esc(f.name)}</div><div class="meta">${esc(f.catalog_id.toUpperCase())}</div></div>
-      <div class="price"><div class="p">${gbp(num(f.value_gbp))}</div>
-      <div class="meta">${kind === 'gain' ? gainHtml(num(f.gain_pct)) : `${f.bricklink_units_sold_6m ?? f.units_sold_6m ?? 0} sold`}</div></div></a>`).join('') : '';
+      <div class="price"><div class="p">${gbp(num(f.value_gbp))}</div><div class="meta">${f.bricklink_units_sold_6m ?? f.units_sold_6m ?? 0} sold</div></div></a>`).join('');
   const owned = d.ownedQty ?? d.ownedCount;
   const unpriced = d.ownedCount - d.pricedCount;
   app.innerHTML = `
     <h1>Values</h1>
-    <details class="reveal" ${open ? 'open' : ''}>
-      <summary><span>Collection value</span><span class="arrow">▶</span></summary>
-      <div class="inner">
-        <div class="mchips">${chips}</div>
-        <div class="hero"><div class="muted small">${m.label}</div><div class="big">${gbp(raw.total)}</div>
-          <div class="row"><span>Based on <b>${raw.count}</b> of <b>${d.ownedCount}</b> owned items (${owned} figures)</span>
-          <span>Prices updated <b>${dateStr(d.lastPriceUpdate)}</b></span></div></div>
-        ${unpriced > 0 ? `<div class="notice">Prices are still being collected: ${d.pricedCount} of ${d.ownedCount} owned items have one so far.</div>` : ''}
-        <h2>By range</h2><div class="grid">${cards}</div>
-        <p class="muted small" style="margin-top:14px"><b>${m.label}:</b> ${m.note} Quantities are included. Items you don't own are left out.</p>
-      </div>
-    </details>
-    <h2>Top 5 gainers</h2><div class="list">${mini(d.topGainers, 'gain') || '<p class="muted small">Gainers appear once a week of price history has been collected.</p>'}</div>
-    <h2>Top 5 most traded (6 months)</h2><div class="list">${mini(d.topTraded, 'traded') || '<p class="muted small">No sales data yet.</p>'}</div>`;
-  document.querySelectorAll('[data-measure]').forEach((b) => b.onclick = (e) => {
-    e.preventDefault(); localStorage.setItem('measure', b.dataset.measure); drawValues(true);
+    <div class="mchips">${chips}</div>
+    <div class="hero"><div class="row" style="justify-content:space-between;margin:0"><span class="muted small">${m.label}</span>
+        <button class="linkbtn" id="toggle-total" style="color:var(--accent)">${showTotal ? 'Hide value' : 'Show value'}</button></div>
+      <div class="big">${showTotal ? gbp(raw.total) : '£ • • • • •'}</div>
+      <div class="row"><span>Based on <b>${raw.count}</b> of <b>${d.ownedCount}</b> owned items (${owned} figures)</span>
+      <span>Prices updated <b>${dateStr(d.lastPriceUpdate)}</b></span></div>
+      <div style="margin-top:10px"><a href="#/measure/${key}">Which figures are included? →</a></div></div>
+    ${unpriced > 0 ? `<div class="notice">Prices are still being collected: ${d.pricedCount} of ${d.ownedCount} owned items have one so far.</div>` : ''}
+    <h2>By range</h2><div class="grid">${cards}</div>
+    <p class="muted small" style="margin-top:14px"><b>${m.label}:</b> ${m.note} Quantities are included. Items you don't own are left out.</p>
+    ${d.topTraded?.length ? `<h2>Top 5 most traded (6 months)</h2><div class="list">${mini(d.topTraded)}</div>` : ''}`;
+  const chipsEl = document.querySelector('.mchips'); if (chipsEl) chipsEl.scrollLeft = sc;
+  window.scrollTo(0, y);
+  document.getElementById('toggle-total').onclick = () => { showTotal = !showTotal; drawValues(); };
+  document.querySelectorAll('[data-measure]').forEach((b) => b.onclick = () => {
+    if (b.dataset.measure === key) { location.hash = '#/measure/' + key; return; }   // tap the selected one again to see what's in it
+    localStorage.setItem('measure', b.dataset.measure); drawValues();
   });
 }
 
+// ---- Which figures are included in a total ----
+async function renderMeasure(key, prefix) {
+  if (!MEASURES[key]) key = 'best';
+  loading();
+  const d = await api(`/api/measure-list?measure=${key}${prefix ? '&prefix=' + encodeURIComponent(prefix) : ''}`);
+  const rows = d.data.map((f) => ({ ...f, ...priceFor(f, key) }));
+  const inc = rows.filter((r) => r.v != null).sort((a, b) => b.v * b.quantity - a.v * a.quantity);
+  const none = rows.filter((r) => r.v == null).sort((a, b) => a.name.localeCompare(b.name));
+  const row = (r, why) => `<a class="card item" href="#/fig/${r.catalog_id}"><div class="thumb"><img loading="lazy" src="${imgUrl(r)}" alt=""></div>
+    <div class="body"><div class="title">${esc(r.name)}</div><div class="meta">${esc(r.catalog_id.toUpperCase())}${r.quantity > 1 ? ' · ×' + r.quantity : ''}${why ? ' · ' + why : ''}</div></div>
+    ${r.v != null ? `<div class="price"><div class="p">${gbp(r.v)}</div><div class="meta">${basisChip(r.basis)}${r.quantity > 1 ? ' ' + gbp(r.v * r.quantity) : ''}</div></div>` : ''}</a>`;
+  app.innerHTML = `
+    <a class="back" href="#/values">← Values</a>
+    <h1>${MEASURES[key].label}</h1>
+    <select id="m-prefix"><option value="">All ranges</option>${PREFIXES.map((p) => opt(p, `${p} – ${GROUPS[p]}`, prefix)).join('')}</select>
+    <p class="subtle" style="margin-top:10px"><b>${inc.length}</b> included · <b>${none.length}</b> without a price (${rows.length} owned)</p>
+    <details class="reveal"><summary><span>Included (${inc.length})</span><span class="arrow">▶</span></summary>
+      <div class="inner"><div class="list">${inc.map((r) => row(r)).join('') || '<p class="muted small">None yet.</p>'}</div></div></details>
+    <details class="reveal"><summary><span>No price (${none.length})</span><span class="arrow">▶</span></summary>
+      <div class="inner"><div class="list">${none.map((r) => row(r, r.price_recorded_at ? 'no price for this measure' : 'not priced yet')).join('') || '<p class="muted small">Every owned item has a price.</p>'}</div></div></details>
+    <p class="muted small">${MEASURES[key].note}</p>`;
+  document.getElementById('m-prefix').onchange = (e) => { location.hash = `#/measure/${key}${e.target.value ? '?prefix=' + e.target.value : ''}`; };
+}
+
 // ---- Browse (endless scroll) ----
-const DEFAULTS = { q: '', prefix: '', universe: '', year: '', owned: 'all', nosale: '', sort: 'number' };
+const DEFAULTS = { q: '', prefix: '', universe: '', year: '', owned: 'all', nosale: '', sort: 'price-high' };
 let yearsCache = null, scrollObserver = null, browseGen = 0;
-const opt = (v, label, cur) => `<option value="${esc(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${esc(label)}</option>`;
 const val = (id) => document.getElementById(id).value;
 
 function readFilters() {
@@ -155,10 +196,12 @@ function browseShell(f) {
         ${opt('number', 'Sort: number', f.sort)}${opt('price-high', 'Price: high to low', f.sort)}${opt('price-low', 'Price: low to high', f.sort)}
         ${opt('gain', '% gain', f.sort)}${opt('traded', 'Most sold (6m)', f.sort)}${opt('year-desc', 'Year: newest', f.sort)}${opt('year-asc', 'Year: oldest', f.sort)}${opt('name', 'Name A–Z', f.sort)}
       </select>
+      <select id="f-measure" class="full">${Object.entries(MEASURES).map(([k, v]) => opt(k, 'Prices shown: ' + v.label, curMeasure())).join('')}</select>
       <label class="check full"><input type="checkbox" id="f-nosale" ${f.nosale === '1' ? 'checked' : ''}> No UK sale in the last 6 months</label>
     </form>
     <p class="muted small" id="count"></p><div class="list" id="results"></div><div class="sentinel" id="sentinel"></div>`;
   for (const id of ['prefix', 'universe', 'year', 'owned', 'sort', 'nosale']) document.getElementById('f-' + id).onchange = () => goFilters(readFilters());
+  document.getElementById('f-measure').onchange = (e) => { localStorage.setItem('measure', e.target.value); renderBrowse(location.hash.split('?')[1] || ''); };
   let t; document.getElementById('f-q').oninput = () => { clearTimeout(t); t = setTimeout(() => goFilters(readFilters()), 700); };
 }
 
@@ -175,6 +218,7 @@ async function renderBrowse(query) {
   } else {
     for (const id of ['prefix', 'universe', 'year', 'owned', 'sort']) document.getElementById('f-' + id).value = f[id];
     document.getElementById('f-nosale').checked = f.nosale === '1';
+    document.getElementById('f-measure').value = curMeasure();
     const q = document.getElementById('f-q'); if (document.activeElement !== q) q.value = f.q;
   }
   const results = document.getElementById('results'), sentinel = document.getElementById('sentinel'), count = document.getElementById('count');
@@ -185,7 +229,7 @@ async function renderBrowse(query) {
     if (busy || done || gen !== browseGen) return;
     busy = true;
     try {
-      const qs = new URLSearchParams({ page: page + 1, limit: 30, sortBy: f.sort,
+      const qs = new URLSearchParams({ page: page + 1, limit: 30, sortBy: f.sort, measure: curMeasure(),
         owned: f.owned === 'removed' ? 'all' : f.owned, ...(f.owned === 'removed' && { removed: 'only' }),
         ...(f.q && { search: f.q }), ...(f.prefix && { prefix: f.prefix }), ...(f.universe && { universe: f.universe }),
         ...(f.year && { year: f.year }), ...(f.nosale && { nosale: '1' }) });
@@ -209,12 +253,12 @@ function qtyHtml(f, big) {
   return `<div class="qty ${big ? 'big' : ''}" data-qty="${f.catalog_id}"><button data-d="-1" aria-label="Fewer">−</button><span class="n">${f.quantity}</span><button data-d="1" aria-label="More">+</button></div>`;
 }
 function itemHtml(f) {
-  const v = num(f.value_gbp);
+  const { v, basis } = priceFor(f, curMeasure());
   return `<div class="card item ${f.quantity > 0 ? '' : 'off'}" data-id="${f.catalog_id}">
     <a class="thumb" href="#/fig/${f.catalog_id}"><img loading="lazy" src="${imgUrl(f)}" alt=""></a>
     <a class="body" href="#/fig/${f.catalog_id}"><div class="title">${esc(f.name)}</div>
       <div class="meta">${esc(f.catalog_id.toUpperCase())} · ${f.year_released || '–'}${f.quantity > 0 ? '' : ' · not owned'}${f.removed ? ' · removed' : ''}</div></a>
-    <div class="price"><div class="p">${gbp(v)}</div><div class="meta">${basisChip(f.value_basis)} ${gainHtml(num(f.gain_pct))}</div></div>
+    <div class="price"><div class="p">${gbp(v)}</div><div class="meta">${basisChip(basis)} ${gainHtml(num(f.gain_pct))}</div></div>
     ${f.removed ? '' : qtyHtml(f)}
   </div>`;
 }
@@ -306,12 +350,13 @@ async function route() {
   const hash = location.hash || '#/';
   const [path, query = ''] = hash.slice(1).split('?');
   document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('active',
-    (a.dataset.nav === 'home' && path === '/') || (a.dataset.nav === 'values' && path === '/values') || (a.dataset.nav === 'browse' && path.startsWith('/browse'))));
+    (a.dataset.nav === 'home' && path === '/') || (a.dataset.nav === 'values' && (path === '/values' || path.startsWith('/measure/'))) || (a.dataset.nav === 'browse' && path.startsWith('/browse'))));
   if (!path.startsWith('/browse') && scrollObserver) { scrollObserver.disconnect(); scrollObserver = null; browseGen++; }
   try {
     if (path.startsWith('/fig/')) await renderFig(path.slice(5));
     else if (path.startsWith('/browse')) await renderBrowse(query);
     else if (path === '/values') await renderValues();
+    else if (path.startsWith('/measure/')) await renderMeasure(path.slice(9), new URLSearchParams(query).get('prefix') || '');
     else await renderHome();
     if (!path.startsWith('/browse')) window.scrollTo(0, 0);
   } catch (e) { showError(e); }
