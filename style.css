@@ -8,11 +8,12 @@ body { margin: 0; background: var(--bg); color: var(--text);
   font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding-bottom: env(safe-area-inset-bottom); }
 a { color: var(--accent); text-decoration: none; }
 .topbar { position: sticky; top: 0; z-index: 10; display: flex; justify-content: space-between; align-items: center; gap: 8px;
-  padding: calc(10px + env(safe-area-inset-top)) 14px 10px; background: rgba(10,15,28,.94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
-.brand { display: flex; align-items: center; gap: 8px; color: var(--text); font-weight: 800; font-size: 13px; letter-spacing: 1.6px; white-space: nowrap; }
+  padding: calc(10px + env(safe-area-inset-top)) 10px 10px; background: rgba(10,15,28,.94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 6px; color: var(--text); font-weight: 800; font-size: 10.5px; letter-spacing: 1px; white-space: nowrap; }
+@media (max-width: 380px) { .brand span.word { display: none; } }
 .logo { width: 26px; height: 26px; border-radius: 7px; }
 nav { display: flex; gap: 2px; }
-nav a { color: var(--muted); padding: 6px 10px; border-radius: 999px; font-weight: 600; font-size: 14px; }
+nav a { color: var(--muted); padding: 6px 7px; border-radius: 999px; font-weight: 600; font-size: 13px; }
 nav a.active { background: var(--card2); color: var(--text); }
 main { max-width: 980px; margin: 0 auto; padding: 16px; }
 h1 { font-size: 22px; margin: 4px 0 12px; } h2 { font-size: 17px; margin: 22px 0 10px; }

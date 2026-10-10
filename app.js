@@ -35,6 +35,22 @@ async function api(path, opts = {}) {
 const loading = () => { app.innerHTML = `<p class="muted center pad">Loading…<br><span id="wake" hidden class="small">Waking the server up – this can take up to a minute the first time.</span></p>`; };
 const showError = (e) => { app.innerHTML = `<div class="card"><p class="err">Something went wrong: ${esc(e.message)}</p><p class="muted small">The server may still be waking up. Wait a few seconds and <a href="javascript:location.reload()">try again</a>.</p></div>`; };
 
+// ---- Instant loading: show the last saved answer straight away, then refresh quietly ----
+let navId = 0;
+async function swr(paths, draw) {
+  const my = navId;
+  const keys = paths.map((p) => 'cache:' + p);
+  const saved = keys.map((k) => { try { return JSON.parse(localStorage.getItem(k))?.data ?? null; } catch (e) { return null; } });
+  const haveSaved = saved.every(Boolean);
+  if (haveSaved) draw(saved); else loading();
+  let fresh;
+  try {
+    fresh = await Promise.all(paths.map((p, i) => api(p).catch((e) => { if (!haveSaved) throw e; return saved[i]; })));
+  } catch (e) { if (my === navId) throw e; return; }
+  keys.forEach((k, i) => { try { localStorage.setItem(k, JSON.stringify({ data: fresh[i], at: Date.now() })); } catch (e) { /* storage full: ignore */ } });
+  if (my === navId) draw(fresh);
+}
+
 // ---- Changing quantity / removing (asks for your admin key if one is set) ----
 async function patchItem(id, body) {
   const send = (key) => api(`/api/minifigures/${encodeURIComponent(id)}`, {
@@ -51,9 +67,8 @@ async function patchItem(id, body) {
 }
 
 // ---- Landing page: six portrait cards ----
-async function renderHome() {
-  loading();
-  const [h, d] = await Promise.all([api('/api/highlights'), api('/api/dashboard').catch(() => null)]);
+async function renderHome() { await swr(['/api/highlights', '/api/dashboard'], ([h, d]) => drawHome(h, d)); }
+function drawHome(h, d) {
   const tiles = [
     ['Most valuable', h.mostValuable, (f) => gbp(num(f.value_gbp)), 'Prices appear after the first sync'],
     ['Most traded', h.mostTraded, (f) => `${f.units_sold_6m} sold`, 'No sales data yet'],
@@ -100,10 +115,8 @@ function priceFor(f, key) {
 let dashData = null, showTotal = false;
 
 async function renderValues() {
-  loading();
   showTotal = false;                     // the headline figure always starts hidden
-  dashData = await api('/api/dashboard');
-  drawValues();
+  await swr(['/api/dashboard'], ([d]) => { dashData = d; drawValues(); });
 }
 function drawValues() {
   const d = dashData;
@@ -116,10 +129,10 @@ function drawValues() {
     return `<a class="card pcard" href="#/browse?prefix=${p}&owned=owned"><div class="name">${p}</div><div class="sub">${esc(GROUPS[p])}</div>
       <div class="val">${gbp(v)}</div><div class="sub">${s.ownedQty ?? s.ownedCount ?? 0} owned</div></a>`;
   }).join('');
-  const mini = (rows) => rows.map((f) => `
+  const mini = (rows, showTraded) => rows.map((f) => `
     <a class="card item" href="#/fig/${f.catalog_id}"><div class="thumb"><img loading="lazy" src="${imgUrl(f)}" alt=""></div>
       <div class="body"><div class="title">${esc(f.name)}</div><div class="meta">${esc(f.catalog_id.toUpperCase())}</div></div>
-      <div class="price"><div class="p">${gbp(num(f.value_gbp))}</div><div class="meta">${f.bricklink_units_sold_6m ?? f.units_sold_6m ?? 0} sold</div></div></a>`).join('');
+      <div class="price"><div class="p">${gbp(num(f.value_gbp))}</div><div class="meta">${f.bricklink_units_sold_6m ?? f.units_sold_6m ?? 0} sold${showTraded && f.traded_value != null ? ' · ' + gbp(num(f.traded_value)) + ' traded' : ''}</div></div></a>`).join('');
   const owned = d.ownedQty ?? d.ownedCount;
   const unpriced = d.ownedCount - d.pricedCount;
   app.innerHTML = `
@@ -134,7 +147,8 @@ function drawValues() {
     ${unpriced > 0 ? `<div class="notice">Prices are still being collected: ${d.pricedCount} of ${d.ownedCount} owned items have one so far.</div>` : ''}
     <h2>By range</h2><div class="grid">${cards}</div>
     <p class="muted small" style="margin-top:14px"><b>${m.label}:</b> ${m.note} Quantities are included. Items you don't own are left out.</p>
-    ${d.topTraded?.length ? `<h2>Top 5 most traded (6 months)</h2><div class="list">${mini(d.topTraded)}</div>` : ''}`;
+    ${d.topTradedValue?.length ? `<h2>Top 5 most traded by value (6 months)</h2><p class="subtle">UK sales × price</p><div class="list">${mini(d.topTradedValue, true)}</div>` : ''}
+    ${(d.topTradedAbove5 || d.topTraded)?.length ? `<h2>Top 5 most traded over £5 (6 months)</h2><div class="list">${mini(d.topTradedAbove5 || d.topTraded)}</div>` : ''}`;
   const chipsEl = document.querySelector('.mchips'); if (chipsEl) chipsEl.scrollLeft = sc;
   window.scrollTo(0, y);
   document.getElementById('toggle-total').onclick = () => { showTotal = !showTotal; drawValues(); };
@@ -276,6 +290,44 @@ function wireQty(root) {
   });
 }
 
+// ---- Deals: new UK listings priced well below the typical sold price ----
+const DEAL_DEFAULTS = { discount: '20', minprice: '10', minsales: '2', minlistings: '1', scope: 'all', sort: 'margin' };
+async function renderDeals(query) {
+  const f = { ...DEAL_DEFAULTS, ...Object.fromEntries(new URLSearchParams(query)) };
+  const qs = new URLSearchParams({ discount: f.discount, minprice: f.minprice, minsales: f.minsales, minlistings: f.minlistings, scope: f.scope, sort: f.sort });
+  await swr(['/api/deals?' + qs], ([d]) => drawDeals(f, d));
+}
+function drawDeals(f, d) {
+  const sel = (id, label, options) => `<select id="${id}" aria-label="${label}">${options.map(([v, t]) => opt(v, t, f[id.slice(2)])).join('')}</select>`;
+  const row = (r) => `<a class="card item" href="#/fig/${r.catalog_id}"><div class="thumb"><img loading="lazy" src="${imgUrl(r)}" alt=""></div>
+    <div class="body"><div class="title">${esc(r.name)}</div>
+      <div class="meta">${esc(r.catalog_id.toUpperCase())}${r.quantity > 0 ? ' · you own ' + r.quantity : ' · not owned'} · ${r.sales} sold</div>
+      <div class="meta">Usually sells for ${gbp(num(r.typical))}</div>
+      ${r.listings?.length ? `<div class="meta">Cheapest ${r.listings.length > 1 ? r.listings.length : 'listing'}: ${r.listings.map((x) => gbp(num(x))).join(' · ')}</div>` : ''}</div>
+    <div class="price"><div class="p">${gbp(num(r.listing))}</div><div class="meta"><span class="up">−${num(r.discount_pct)}%</span> · ${gbp(num(r.margin))}</div></div></a>`;
+  app.innerHTML = `
+    <h1>Deals</h1>
+    <p class="subtle">New UK listings priced well under what that figure usually sells for (UK new sales, last 6 months).</p>
+    <form class="filters" onsubmit="return false">
+      ${sel('d-discount', 'Discount', [['10', 'At least 10% under'], ['20', 'At least 20% under'], ['30', 'At least 30% under'], ['40', 'At least 40% under'], ['50', 'At least 50% under']])}
+      ${sel('d-minprice', 'Minimum price', [['5', 'Worth £5+'], ['10', 'Worth £10+'], ['20', 'Worth £20+'], ['50', 'Worth £50+'], ['100', 'Worth £100+']])}
+      ${sel('d-minsales', 'Minimum sales', [['2', '2+ sales'], ['3', '3+ sales'], ['5', '5+ sales'], ['10', '10+ sales']])}
+      ${sel('d-minlistings', 'Listings', [['1', 'Cheapest listing qualifies'], ['2', '2 of the 3 cheapest qualify'], ['3', 'All 3 cheapest qualify']])}
+      ${sel('d-scope', 'Show', [['all', 'All figures'], ['not-owned', 'Not owned'], ['owned', 'Owned']])}
+      ${sel('d-sort', 'Sort', [['margin', 'Biggest £ margin'], ['discount', 'Biggest % discount']])}
+    </form>
+    <p class="muted small">${d.data.length ? d.data.length + ' found' + (d.data.length >= 200 ? ' (showing the first 200)' : '') : ''}</p>
+    <div class="list">${d.data.map(row).join('') || '<p class="muted center pad">No deals match yet.<br><span class="small">Listing prices fill in as each figure is refreshed by the daily sync, so give it a few days. Or try a smaller discount.</span></p>'}</div>
+    <p class="muted small" style="margin-top:14px">The margin is typical sold price minus the cheapest new UK listing, <b>before</b> postage, fees and your time. The three cheapest listing prices are shown so you can see what's next if the first has a flaw. Prices are only as fresh as the last sync, so check on BrickLink before buying.</p>`;
+  for (const id of ['discount', 'minprice', 'minsales', 'minlistings', 'scope', 'sort']) {
+    document.getElementById('d-' + id).onchange = () => {
+      const n = { discount: val('d-discount'), minprice: val('d-minprice'), minsales: val('d-minsales'), minlistings: val('d-minlistings'), scope: val('d-scope'), sort: val('d-sort') };
+      const p = new URLSearchParams(); for (const k of Object.keys(DEAL_DEFAULTS)) if (n[k] !== DEAL_DEFAULTS[k]) p.set(k, n[k]);
+      location.hash = '#/deals' + (p.toString() ? '?' + p : '');
+    };
+  }
+}
+
 // ---- Figure page ----
 let chart;
 async function renderFig(id) {
@@ -347,15 +399,17 @@ async function renderFig(id) {
 
 // ---- Router ----
 async function route() {
+  navId++;
   const hash = location.hash || '#/';
   const [path, query = ''] = hash.slice(1).split('?');
   document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('active',
-    (a.dataset.nav === 'home' && path === '/') || (a.dataset.nav === 'values' && (path === '/values' || path.startsWith('/measure/'))) || (a.dataset.nav === 'browse' && path.startsWith('/browse'))));
+    (a.dataset.nav === 'home' && path === '/') || (a.dataset.nav === 'values' && (path === '/values' || path.startsWith('/measure/'))) || (a.dataset.nav === 'browse' && path.startsWith('/browse')) || (a.dataset.nav === 'deals' && path === '/deals')));
   if (!path.startsWith('/browse') && scrollObserver) { scrollObserver.disconnect(); scrollObserver = null; browseGen++; }
   try {
     if (path.startsWith('/fig/')) await renderFig(path.slice(5));
     else if (path.startsWith('/browse')) await renderBrowse(query);
     else if (path === '/values') await renderValues();
+    else if (path === '/deals') await renderDeals(query);
     else if (path.startsWith('/measure/')) await renderMeasure(path.slice(9), new URLSearchParams(query).get('prefix') || '');
     else await renderHome();
     if (!path.startsWith('/browse')) window.scrollTo(0, 0);
