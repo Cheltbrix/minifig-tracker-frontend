@@ -123,7 +123,13 @@ function drawValues() {
   const sc = document.querySelector('.mchips')?.scrollLeft || 0, y = window.scrollY;   // keep the scroll position when re-drawing
   const key = curMeasure();
   const m = MEASURES[key], raw = d.measures?.[key] || { total: 0, count: 0 };
-  const chips = Object.entries(MEASURES).map(([k, v]) => `<button class="mchip ${k === key ? 'on' : ''}" data-measure="${k}">${v.label}</button>`).join('');
+  const deltaOf = (c) => {
+    if (!c || c.pct == null) return '<span class="delta">–</span>';
+    const up = c.change >= 0;
+    return `<span class="delta ${c.change === 0 ? '' : up ? 'up' : 'down'}">${c.change === 0 ? '' : up ? '▲ ' : '▼ '}${Math.abs(c.pct).toFixed(1)}% · ${gbp(Math.abs(c.change))}</span>`;
+  };
+  // the changes only show once the headline is revealed, so nothing leaks while the value is hidden
+  const chips = Object.entries(MEASURES).map(([k, v]) => `<button class="mchip ${k === key ? 'on' : ''}" data-measure="${k}"><span>${v.label}</span>${showTotal ? deltaOf(d.changes?.[k]) : ''}</button>`).join('');
   const cards = PREFIXES.map((p) => {
     const s = d.byPrefix[p] || {}; const v = s.values?.[key]?.total ?? 0;
     return `<a class="card pcard" href="#/browse?prefix=${p}&owned=owned"><div class="name">${p}</div><div class="sub">${esc(GROUPS[p])}</div>
@@ -143,6 +149,7 @@ function drawValues() {
       <div class="big">${showTotal ? gbp(raw.total) : '£ • • • • •'}</div>
       <div class="row"><span>Based on <b>${raw.count}</b> of <b>${d.ownedCount}</b> owned items (${owned} figures)</span>
       <span>Prices updated <b>${dateStr(d.lastPriceUpdate)}</b></span></div>
+      ${showTotal ? `<div class="row" style="margin-top:6px"><span>Since ${d.changesSince ? new Date(d.changesSince).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : 'tracking began'}: ${deltaOf(d.changes?.[key])}${d.changes?.[key]?.count ? ` <span class="muted">(${d.changes[key].count} figures with history)</span>` : ''}</span></div>` : ''}
       <div style="margin-top:10px"><a href="#/measure/${key}">Which figures are included? →</a></div></div>
     ${unpriced > 0 ? `<div class="notice">Prices are still being collected: ${d.pricedCount} of ${d.ownedCount} owned items have one so far.</div>` : ''}
     <h2>By range</h2><div class="grid">${cards}</div>
@@ -303,6 +310,7 @@ function drawDeals(f, d) {
     <div class="body"><div class="title">${esc(r.name)}</div>
       <div class="meta">${esc(r.catalog_id.toUpperCase())}${r.quantity > 0 ? ' · you own ' + r.quantity : ' · not owned'} · ${r.sales} sold</div>
       <div class="meta">Usually sells for ${gbp(num(r.typical))}</div>
+      ${r.last_new_price != null ? `<div class="meta ${num(r.last_new_price) < num(r.typical) * 0.6 ? 'warnline' : ''}">Last new sale ${gbp(num(r.last_new_price))}${r.last_new_date ? ' · ' + new Date(r.last_new_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}${num(r.last_new_price) < num(r.typical) * 0.6 ? ' – well below usual' : ''}</div>` : ''}
       ${r.listings?.length ? `<div class="meta">Cheapest ${r.listings.length > 1 ? r.listings.length : 'listing'}: ${r.listings.map((x) => gbp(num(x))).join(' · ')}</div>` : ''}</div>
     <div class="price"><div class="p">${gbp(num(r.listing))}</div><div class="meta"><span class="up">−${num(r.discount_pct)}%</span> · ${gbp(num(r.margin))}</div></div></a>`;
   app.innerHTML = `
@@ -330,19 +338,54 @@ function drawDeals(f, d) {
 
 // ---- Figure page ----
 let chart;
+
+// ---- Enlarged picture ----
+const bigImgUrl = (f) => `https://img.bricklink.com/${{ MINIFIG: 'ML', PART: 'PL', GEAR: 'GL' }[f.item_type] || 'ML'}/${f.bl_number}.jpg`;
+function openLightbox(src, fallback, alt) {
+  const o = document.createElement('div');
+  o.className = 'lightbox';
+  o.innerHTML = `<button class="lbx" aria-label="Close">✕</button><img src="${esc(src)}" alt="${esc(alt)}">`;
+  const img = o.querySelector('img');
+  img.onerror = () => { img.onerror = null; img.src = fallback; };   // if there is no large version, use the normal picture
+  const close = () => { o.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  o.onclick = close;
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(o);
+}
+
 async function renderFig(id) {
   loading();
   const d = await api(`/api/minifigures/${encodeURIComponent(id)}?days=1825`);
   const f = d.minifigure;
-  const stat = (l, v, cls = '') => `<div class="stat ${cls}"><div class="l">${l}</div><div class="v">${v}</div></div>`;
   const ratio = (f.units_sold_6m || 0) / Math.max(f.uk_listings_count || 0, 1);
   const ease = f.price_recorded_at == null ? '–' : `${ratio >= 2 ? 'Fast' : ratio >= 0.5 ? 'Steady' : 'Slow'}<div class="muted small">${ratio.toFixed(1)} sales per listing</div>`;
   const link = f.item_type === 'PART' ? `P=${f.bl_number}` : f.item_type === 'GEAR' ? `G=${f.bl_number}` : `M=${f.bl_number}`;
+
+  // sets: one or two are listed in full, three or more sit in a drop-down
+  const setRow = (s) => `<div><a target="_blank" rel="noopener" href="https://www.bricklink.com/v2/catalog/catalogitem.page?S=${encodeURIComponent(s.set_id)}">${esc(s.set_id)}</a> – ${esc(s.set_name)}</div>`;
+  const setsHtml = !d.sets.length ? ''
+    : d.sets.length <= 2
+      ? `<div class="setsblock"><div class="small muted">${d.sets.length === 1 ? 'Appears in one set' : 'Appears in 2 sets'}</div><div class="sets">${d.sets.map(setRow).join('')}</div></div>`
+      : `<details class="reveal setsblock"><summary><span>Appears in ${d.sets.length} sets</span><span class="arrow">▶</span></summary><div class="inner"><div class="sets">${d.sets.map(setRow).join('')}</div></div></details>`;
+
+  // new and used side by side
+  const when = (p, dt) => p != null ? `${gbp(num(p))}${dt ? `<div class="muted small">${new Date(dt).toLocaleDateString('en-GB')}</div>` : ''}` : '–';
+  const cmp = (label, n, u, cls = '') => `<div class="cmp ${cls}"><div class="cl">${label}</div><div class="cv">${n}</div><div class="cv">${u}</div></div>`;
+  const table = `<div class="cmp head"><div></div><div class="cv">New</div><div class="cv">Used</div></div>
+    ${cmp('Sold average (6 months)', gbp(num(f.v_sold_new)) + ' ' + basisChip(f.sold_new_basis), gbp(num(f.v_sold_used)) + ' ' + basisChip(f.sold_used_basis))}
+    ${cmp('Last sold (UK)', when(f.last_sold_new_price, f.last_sold_new_date), when(f.last_sold_used_price, f.last_sold_used_date))}
+    ${cmp('Sold in 6 months (UK)', f.uk_units_sold_new ?? '–', f.uk_units_sold_used ?? '–')}
+    ${cmp('For sale now (UK avg)', gbp(num(f.bricklink_avg_asking_new)), gbp(num(f.bricklink_avg_asking_used)))}
+    ${cmp('Cheapest UK listing', gbp(num(f.uk_cheapest_new)), gbp(num(f.uk_cheapest_used)))}
+    ${cmp('UK listings', f.uk_listings_new ?? '–', f.uk_listings_used ?? '–')}
+    ${cmp('BrickEconomy', '–', '–', 'dim')}`;
+
   app.innerHTML = `
     <a class="back" href="javascript:history.back()">← Back</a>
     <div class="card">
       <div class="detail-head">
-        <div class="thumb"><img src="${imgUrl(f)}" alt=""></div>
+        <button class="thumb zoom" id="zoom" aria-label="Enlarge picture"><img src="${imgUrl(f)}" alt=""></button>
         <div style="flex:1;min-width:0">
           <div style="font-weight:700;font-size:18px">${esc(f.name)}</div>
           <div class="muted small">${esc(f.catalog_id.toUpperCase())} · ${f.year_released || '–'} · ${esc(f.prefix)}${f.universe ? ' · ' + esc(f.universe) : ''}</div>
@@ -352,29 +395,20 @@ async function renderFig(id) {
             <button class="linkbtn" id="rm">${f.removed ? 'Restore' : 'Remove from app'}</button></div>
         </div>
       </div>
-      <div class="stats">
-        ${stat('Value (best estimate) ' + basisChip(f.value_basis), gbp(num(f.value_gbp)))}
-        ${stat('BrickLink sold – new ' + basisChip(f.sold_new_basis), gbp(num(f.v_sold_new)))}
-        ${stat('BrickLink sold – used ' + basisChip(f.sold_used_basis), gbp(num(f.v_sold_used)))}
-        ${stat('BrickEconomy – new', '–', 'dim')}
-        ${stat('BrickEconomy – used', '–', 'dim')}
-        ${stat('Last sold (UK)', f.bricklink_last_sold_price ? `${gbp(num(f.bricklink_last_sold_price))}<div class="muted small">${f.bricklink_last_sold_date ? new Date(f.bricklink_last_sold_date).toLocaleDateString('en-GB') : ''}</div>` : '–')}
-        ${stat('Sold in 6 months (UK)', f.units_sold_6m ?? '–')}
-        ${stat('Active UK listings', f.uk_listings_count ?? '–')}
-        ${stat('For sale now – new (UK avg)', gbp(num(f.bricklink_avg_asking_new)))}
-        ${stat('For sale now – used (UK avg)', gbp(num(f.bricklink_avg_asking_used)))}
-        ${stat('Cheapest UK listing', gbp(num(f.uk_cheapest_listing)))}
-        ${stat('Ease of selling', ease)}
+      ${setsHtml}
+      <div class="stats one">
+        <div class="stat"><div class="l">Value (best estimate) ${basisChip(f.value_basis)}</div><div class="v">${gbp(num(f.value_gbp))}</div></div>
       </div>
+      <div class="cmpbox">${table}</div>
+      <div class="stats one"><div class="stat"><div class="l">Ease of selling</div><div class="v">${ease}</div></div></div>
       <div class="muted small" style="margin-top:8px">Prices updated ${dateStr(f.price_recorded_at)}${f.quantity > 1 ? ` · you own ${f.quantity}` : ''}</div>
     </div>
     <h2>Price history</h2>
     <div class="card"><div class="range"><button data-d="365" class="on">1 year</button><button data-d="1825">5 years</button></div>
-      <div class="chartbox"><canvas id="chart"></canvas></div><p id="chartnote" class="muted small"></p></div>
-    ${d.sets.length ? `<h2>Appears in ${d.sets.length} set${d.sets.length === 1 ? '' : 's'}</h2>
-    <div class="sets">${d.sets.map((s) => `<div><a target="_blank" rel="noopener" href="https://www.bricklink.com/v2/catalog/catalogitem.page?S=${encodeURIComponent(s.set_id)}">${esc(s.set_id)}</a> – ${esc(s.set_name)}</div>`).join('')}</div>` : ''}`;
+      <div class="chartbox"><canvas id="chart"></canvas></div><p id="chartnote" class="muted small"></p></div>`;
 
   wireQty(app);
+  document.getElementById('zoom').onclick = () => openLightbox(bigImgUrl(f), imgUrl(f), f.name);
   document.getElementById('rm').onclick = async () => {
     if (!f.removed && !confirm('Remove this from the app? You can restore it later from Browse → Removed.')) return;
     try { await patchItem(f.catalog_id, { removed: !f.removed }); renderFig(id); } catch (err) { alert('Could not update: ' + err.message); }

@@ -83,3 +83,25 @@ label.check { display: flex; align-items: center; gap: 8px; font-size: 14px; col
 .sets { display: flex; flex-direction: column; gap: 6px; } .sets div { background: var(--card2); border-radius: 8px; padding: 8px 10px; font-size: 14px; }
 .back { display: inline-block; margin-bottom: 8px; } .err { color: var(--bad); }
 .linkbtn { background: none; border: 0; padding: 0; color: var(--bad); font-size: 13px; width: auto; }
+
+button.thumb { padding: 0; border: 0; cursor: zoom-in; }
+.setsblock { margin-top: 12px; }
+.setsblock.reveal { background: var(--card2); }
+.stats.one { grid-template-columns: 1fr; }
+.cmpbox { margin-top: 10px; }
+.cmp { display: grid; grid-template-columns: 1.25fr 1fr 1fr; gap: 6px; padding: 9px 0; border-top: 1px solid var(--line); align-items: start; }
+.cmp.head { border-top: 0; padding-bottom: 2px; color: var(--muted); font-weight: 700; font-size: 13px; }
+.cmp .cl { color: var(--muted); font-size: 13px; }
+.cmp .cv { font-weight: 700; text-align: right; }
+.cmp.dim .cv { color: var(--muted); font-weight: 600; }
+.warnline { color: var(--warn); }
+.lightbox { position: fixed; inset: 0; z-index: 100; background: rgba(5, 8, 16, .96); display: flex; align-items: center; justify-content: center; padding: 16px; cursor: zoom-out; }
+.lightbox img { max-width: 100%; max-height: 90vh; object-fit: contain; background: #fff; border-radius: 12px; }
+.lightbox .lbx { position: absolute; top: calc(12px + env(safe-area-inset-top)); right: 14px; width: 40px; height: 40px; padding: 0; border-radius: 50%; font-size: 18px; background: var(--card2); }
+
+.mchip { text-align: left; line-height: 1.25; }
+.mchip .delta { display: block; font-size: 11px; font-weight: 700; margin-top: 1px; color: var(--muted); }
+.mchip.on .delta { color: #06101f; }
+.hero .delta { font-weight: 700; color: var(--muted); } .hero .delta.up { color: var(--good); } .hero .delta.down { color: var(--bad); }
+.mchip .delta.up { color: var(--good); } .mchip .delta.down { color: var(--bad); }
+.mchip.on .delta.up { color: #0a5a38; } .mchip.on .delta.down { color: #8a1c1c; }
