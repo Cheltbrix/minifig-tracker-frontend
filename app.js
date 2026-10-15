@@ -215,8 +215,8 @@ function browseShell(f) {
       <select id="f-year"><option value="">Any year</option>${yearsCache.map((y) => opt(y, y, f.year)).join('')}</select>
       <select id="f-owned">${opt('all', 'All figures', f.owned)}${opt('owned', 'Owned only', f.owned)}${opt('not-owned', 'Not owned', f.owned)}${opt('removed', 'Removed', f.owned)}</select>
       <select id="f-sort" class="full">
-        ${opt('number', 'Sort: number', f.sort)}${opt('price-high', 'Price: high to low', f.sort)}${opt('price-low', 'Price: low to high', f.sort)}
-        ${opt('gain', '% gain', f.sort)}${opt('traded', 'Most sold (6m)', f.sort)}${opt('year-desc', 'Year: newest', f.sort)}${opt('year-asc', 'Year: oldest', f.sort)}${opt('name', 'Name A–Z', f.sort)}
+        ${opt('number', 'Number: lowest - highest', f.sort)}${opt('number-desc', 'Number: highest - lowest', f.sort)}${opt('price-high', 'Price: high to low', f.sort)}${opt('price-low', 'Price: low to high', f.sort)}
+        ${opt('gain', '% gain', f.sort)}${opt('traded', 'Most sold (6m)', f.sort)}${opt('year-desc', 'Year: newest - oldest', f.sort)}${opt('year-asc', 'Year: oldest - newest', f.sort)}${opt('name', 'Name A–Z', f.sort)}
       </select>
       <select id="f-measure" class="full">${Object.entries(MEASURES).map(([k, v]) => opt(k, 'Prices shown: ' + v.label, curMeasure())).join('')}</select>
       <label class="check full"><input type="checkbox" id="f-nosale" ${f.nosale === '1' ? 'checked' : ''}> No UK sale in the last 6 months</label>
