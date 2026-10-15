@@ -97,9 +97,10 @@ const MEASURES = {
   askNew:   { label: 'For sale · new',            note: 'Average UK asking price, new. Asking prices usually run higher than what figures actually sell for.' },
   askUsed:  { label: 'For sale · used',           note: 'Average UK asking price, used. Asking prices usually run higher than what figures actually sell for.' },
   soldChain: { label: 'Sold · UK new → used → Europe', note: 'Average sold price over 6 months: UK new; if none, UK used; if none, European new; if none, European used. Tags show which step was used (used, EU, EU used).' },
-  askMixed: { label: 'For sale · new → used → Europe', note: 'UK asking price for new; if none, UK used; if none, a European asking price.' }
+  askMixed: { label: 'For sale · new → used → Europe', note: 'UK asking price for new; if none, UK used; if none, a European asking price.' },
+  be:       { label: 'BrickEconomy · new',        note: 'BrickEconomy\'s own estimate of a new minifigure (converted to pounds). It is refreshed slowly, about 90 figures a day, most valuable first, so some figures may not have a value yet.' }
 };
-const MEASURE_FIELD = { best: 'value_gbp', soldNew: 'v_sold_new', soldUsed: 'v_sold_used', askNew: 'v_ask_new', askUsed: 'v_ask_used', soldChain: 'v_sold_chain', askMixed: 'v_ask_mixed' };
+const MEASURE_FIELD = { best: 'value_gbp', soldNew: 'v_sold_new', soldUsed: 'v_sold_used', askNew: 'v_ask_new', askUsed: 'v_ask_used', soldChain: 'v_sold_chain', askMixed: 'v_ask_mixed', be: 'be_value_new' };
 const curMeasure = () => (MEASURES[localStorage.getItem('measure')] ? localStorage.getItem('measure') : 'best');
 // the price to show for an item under a measure, plus its EU / asking tag
 function priceFor(f, key) {
@@ -379,7 +380,7 @@ async function renderFig(id) {
     ${cmp('For sale now (UK avg)', gbp(num(f.bricklink_avg_asking_new)), gbp(num(f.bricklink_avg_asking_used)))}
     ${cmp('Cheapest UK listing', gbp(num(f.uk_cheapest_new)), gbp(num(f.uk_cheapest_used)))}
     ${cmp('UK listings', f.uk_listings_new ?? '–', f.uk_listings_used ?? '–')}
-    ${cmp('BrickEconomy', '–', '–', 'dim')}`;
+    ${cmp('BrickEconomy (new only)', f.be_value_new != null ? gbp(num(f.be_value_new)) + (f.be_value_date ? `<div class="muted small">${new Date(f.be_value_date).toLocaleDateString('en-GB')}</div>` : '') : '–', '', 'dim')}`;
 
   app.innerHTML = `
     <a class="back" href="javascript:history.back()">← Back</a>
