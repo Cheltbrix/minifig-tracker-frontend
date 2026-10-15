@@ -11,7 +11,7 @@ const PREFIXES = Object.keys(GROUPS);
 const app = document.getElementById('app');
 
 // ---- Helpers ----
-const gbp = (n) => n == null ? '–' : new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', maximumFractionDigits: n >= 100 ? 0 : 2 }).format(n);
+const gbp = (n) => n == null ? '–' : new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const num = (v) => (v == null ? null : parseFloat(v));
 const imgUrl = (f) => f.image_url || `https://img.bricklink.com/ItemImage/MN/0/${f.catalog_id}.png`;
@@ -390,6 +390,7 @@ async function renderFig(id) {
         <div style="flex:1;min-width:0">
           <div style="font-weight:700;font-size:18px">${esc(f.name)}</div>
           <div class="muted small">${esc(f.catalog_id.toUpperCase())} · ${f.year_released || '–'} · ${esc(f.prefix)}${f.universe ? ' · ' + esc(f.universe) : ''}</div>
+          ${f.shelf_location ? `<div class="small" style="margin-top:6px">Shelf: ${esc(f.shelf_location)}</div>` : ''}
           <div style="margin-top:8px;display:flex;align-items:center;gap:10px">${f.removed ? '<span class="chip warn">removed</span>' : qtyHtml(f, true)}<span class="small muted">${f.removed ? '' : 'owned'}</span></div>
           <div style="margin-top:8px;display:flex;gap:14px;flex-wrap:wrap">
             <a class="small" target="_blank" rel="noopener" href="https://www.bricklink.com/v2/catalog/catalogitem.page?${link}">View on BrickLink ↗</a>
