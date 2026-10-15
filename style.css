@@ -105,5 +105,3 @@ button.thumb { padding: 0; border: 0; cursor: zoom-in; }
 .hero .delta { font-weight: 700; color: var(--muted); } .hero .delta.up { color: var(--good); } .hero .delta.down { color: var(--bad); }
 .mchip .delta.up { color: var(--good); } .mchip .delta.down { color: var(--bad); }
 .mchip.on .delta.up { color: #0a5a38; } .mchip.on .delta.down { color: #8a1c1c; }
-
-.savedbanner { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 50; background: #2a2310; color: #f0d58a; border: 1px solid #5a4a1a; border-radius: 999px; padding: 8px 16px; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.4); max-width: 92vw; text-align: center; }

@@ -25,7 +25,6 @@ async function api(path, opts = {}) {
   const t = setTimeout(() => { const el = document.getElementById('wake'); if (el) el.hidden = false; }, 4000);
   try {
     const res = await fetch(API + path, opts);
-    if (res.headers.get('content-language') === 'offline-copy') showSavedBanner(true);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       const e = new Error(body.error || `Request failed (${res.status})`); e.status = res.status; throw e;
@@ -433,27 +432,9 @@ async function renderFig(id) {
   });
 }
 
-// ---- Saved-copy banner, offline handling and the service worker ----
-function showSavedBanner(on) {
-  let b = document.getElementById('savedbanner');
-  if (!on) { if (b) b.hidden = true; return; }
-  if (!b) {
-    b = document.createElement('div'); b.id = 'savedbanner'; b.className = 'savedbanner';
-    b.textContent = 'Showing saved data · tap to refresh';
-    b.style.cursor = 'pointer';
-    b.onclick = () => route();
-    document.body.appendChild(b);
-  }
-  b.hidden = false;
-}
-window.addEventListener('offline', () => showSavedBanner(true));
-window.addEventListener('online', () => { showSavedBanner(false); route(); });   // back online: switch to the live version
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-
 // ---- Router ----
 async function route() {
   navId++;
-  showSavedBanner(false);
   const hash = location.hash || '#/';
   const [path, query = ''] = hash.slice(1).split('?');
   document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('active',
