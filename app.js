@@ -402,6 +402,7 @@ async function renderFig(id) {
         <div class="stat"><div class="l">Value (best estimate) ${basisChip(f.value_basis)}</div><div class="v">${gbp(num(f.value_gbp))}</div></div>
       </div>
       <div class="cmpbox">${table}</div>
+      ${(f.odd_sales_new > 0 || f.odd_sales_used > 0) ? `<div class="muted small" style="margin-top:6px">Ignored ${(f.odd_sales_new || 0) + (f.odd_sales_used || 0)} odd sale${(f.odd_sales_new || 0) + (f.odd_sales_used || 0) === 1 ? '' : 's'} (${[f.odd_sales_new > 0 ? 'new' : '', f.odd_sales_used > 0 ? 'used' : ''].filter(Boolean).join(' and ')}) that didn't fit current UK listings.</div>` : ''}
       <div class="stats one"><div class="stat"><div class="l">Ease of selling</div><div class="v">${ease}</div></div></div>
       <div class="muted small" style="margin-top:8px">Prices updated ${dateStr(f.price_recorded_at)}${f.quantity > 1 ? ` · you own ${f.quantity}` : ''}</div>
     </div>
@@ -424,8 +425,8 @@ async function renderFig(id) {
     chart = new Chart(document.getElementById('chart'), { type: 'line',
       data: { labels: pts.map((p) => new Date(p.recorded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })),
         datasets: [{ data: pts.map((p) => num(p.value_gbp)), borderColor: '#5b9bff', backgroundColor: 'rgba(91,155,255,.15)', fill: true, tension: .25, pointRadius: pts.length < 30 ? 3 : 0 }] },
-      options: { maintainAspectRatio: false, plugins: { legend: { display: false } },
-        scales: { x: { ticks: { color: '#8e9bb8', maxTicksLimit: 6 }, grid: { color: '#1b2640' } }, y: { ticks: { color: '#8e9bb8', callback: (v) => '£' + v }, grid: { color: '#1b2640' } } } } });
+      options: { maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => '£' + Number(c.parsed.y).toFixed(2) } } },
+        scales: { x: { ticks: { color: '#8e9bb8', maxTicksLimit: 6 }, grid: { color: '#1b2640' } }, y: { ticks: { color: '#8e9bb8', callback: (v) => '£' + Number(v).toFixed(2) }, grid: { color: '#1b2640' } } } } });
   };
   draw(365);
   document.querySelectorAll('.range button').forEach((b) => b.onclick = () => {
