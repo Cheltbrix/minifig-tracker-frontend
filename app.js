@@ -21,16 +21,32 @@ const basisChip = (b) => b === 'EU used' ? '<span class="chip eu" title="No UK s
   : b === 'used' ? '<span class="chip" title="No UK new sale, so this is the UK used price">used</span>' : b === 'EU' ? '<span class="chip eu" title="No UK sale in 6 months, so this is the European price">EU</span>'
   : b === 'ask' ? '<span class="chip warn" title="No recent sales anywhere, so this is the average asking price">asking</span>' : '';
 
+let serverDownUntil = 0;     // after one failed attempt, skip waiting on the server for a short while
+function retryServer() { serverDownUntil = 0; }
+window.addEventListener('online', retryServer);
+const SLOW_MS = 6000;      // with a saved copy on the phone, a server slower than this is skipped in favour of the saved copy
 async function api(path, opts = {}) {
+  const method = (opts.method || 'GET').toUpperCase();
   const t = setTimeout(() => { const el = document.getElementById('wake'); if (el) el.hidden = false; }, 4000);
+  const saved = () => { Offline.banner(true); return Offline.get(path); };
+  let timer = null;
   try {
-    const res = await fetch(API + path, opts);
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      const e = new Error(body.error || `Request failed (${res.status})`); e.status = res.status; throw e;
+    const canFallBack = method === 'GET' && window.Offline && await Offline.available();
+    if (canFallBack && (navigator.onLine === false || Date.now() < serverDownUntil)) return saved();
+    const ctl = canFallBack ? new AbortController() : null;
+    if (ctl) timer = setTimeout(() => ctl.abort(), SLOW_MS);
+    try {
+      const res = await fetch(API + path, ctl ? { ...opts, signal: ctl.signal } : opts);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const e = new Error(body.error || `Request failed (${res.status})`); e.status = res.status; throw e;
+      }
+      return await res.json();
+    } catch (e) {
+      if (canFallBack && (e.name === 'AbortError' || e instanceof TypeError || e.status >= 500)) { serverDownUntil = Date.now() + 30000; return saved(); }
+      throw e;
     }
-    return await res.json();
-  } finally { clearTimeout(t); }
+  } finally { clearTimeout(t); clearTimeout(timer); }
 }
 const loading = () => { app.innerHTML = `<p class="muted center pad">Loading…<br><span id="wake" hidden class="small">Waking the server up – this can take up to a minute the first time.</span></p>`; };
 const showError = (e) => { app.innerHTML = `<div class="card"><p class="err">Something went wrong: ${esc(e.message)}</p><p class="muted small">The server may still be waking up. Wait a few seconds and <a href="javascript:location.reload()">try again</a>.</p></div>`; };
@@ -55,12 +71,13 @@ async function swr(paths, draw) {
 async function patchItem(id, body) {
   const send = (key) => api(`/api/minifigures/${encodeURIComponent(id)}`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', ...(key ? { 'x-admin-key': key } : {}) }, body: JSON.stringify(body) });
-  try { return await send(localStorage.getItem('adminKey')); }
+  const done = (r) => { Offline.afterEdit(id, r); return r; };
+  try { return done(await send(localStorage.getItem('adminKey'))); }
   catch (e) {
     if (e.status === 401) {
       const key = prompt('Enter your admin key to make changes:');
       if (!key) throw e;
-      const r = await send(key); localStorage.setItem('adminKey', key); return r;
+      const r = await send(key); localStorage.setItem('adminKey', key); return done(r);
     }
     throw e;
   }
@@ -437,6 +454,7 @@ async function renderFig(id) {
 // ---- Router ----
 async function route() {
   navId++;
+  Offline.banner(false);
   const hash = location.hash || '#/';
   const [path, query = ''] = hash.slice(1).split('?');
   document.querySelectorAll('nav a').forEach((a) => a.classList.toggle('active',
@@ -453,4 +471,6 @@ async function route() {
   } catch (e) { showError(e); }
 }
 window.addEventListener('hashchange', route);
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+Offline.init(API);
 route();

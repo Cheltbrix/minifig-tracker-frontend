@@ -112,3 +112,9 @@ button.thumb { padding: 0; border: 0; cursor: zoom-in; }
 .navbar { position: sticky; top: 0; z-index: 10; display: flex; gap: 4px; padding: 8px 10px; background: rgba(10, 15, 28, .94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); border-top: 1px solid var(--line); }
 .navbar a { flex: 1; text-align: center; padding: 9px 4px; border-radius: 999px; font-size: 14px; font-weight: 600; color: var(--muted); }
 .navbar a.active { background: var(--card2); color: var(--text); }
+
+/* offline copy */
+.offlinebar { max-width: 980px; margin: 24px auto 90px; padding: 12px 16px; color: var(--muted); font-size: 12px; line-height: 1.6; border-top: 1px solid var(--line); }
+.offlinebar button { margin-top: 6px; background: transparent; color: var(--accent, #5b9bff); border: 1px solid var(--line); border-radius: 999px; padding: 5px 14px; font-size: 12px; }
+.offlinebar button:disabled { opacity: .5; }
+.savedbanner { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 50; background: #2a2310; color: #f0d58a; border: 1px solid #5a4a1a; border-radius: 999px; padding: 8px 16px; font-size: 12px; white-space: nowrap; box-shadow: 0 6px 20px rgba(0,0,0,.4); max-width: 92vw; text-align: center; cursor: pointer; }
